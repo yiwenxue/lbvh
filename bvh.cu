@@ -121,7 +121,7 @@ void bvh_construct_nodes(bvh_node          *nodes,
 template <typename Index, typename Buffer, typename AABBGetter,
           typename MortonCalculater>
 void bvh<Index, Buffer, AABBGetter, MortonCalculater>::construct() {
-        Timer total_timer("lbvh construction: total");
+    Timer total_timer("lbvh construction: total");
 
     const auto inf = std::numeric_limits<float>::infinity();
     aabb default_aabb;
@@ -200,8 +200,10 @@ void bvh<Index, Buffer, AABBGetter, MortonCalculater>::construct() {
                 }
             );
             morton32.clear();
+            morton32.shrink_to_fit();
         } else {
             morton64.clear();
+            morton64.shrink_to_fit();
         }
     }
 

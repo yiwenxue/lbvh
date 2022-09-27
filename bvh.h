@@ -12,6 +12,31 @@ struct bvh_node {
   unsigned int object_idx;
 };
 
+template <typename Object, typename BufferType, bool isConst>
+struct bvh_tree;
+
+template <typename Object, typename BufferType>
+struct bvh_tree<Object, BufferType, false> {
+  uint32_t num_objs;
+  uint32_t num_nodes;
+
+  bvh_node *nodes;
+  aabb *aabbs;
+  Object *objects;
+  BufferType *buffer;
+};
+
+template <typename Object, typename BufferType>
+struct bvh_tree<Object, BufferType, true> {
+  const uint32_t num_objs;
+  const uint32_t num_nodes;
+  
+  const bvh_node *nodes;
+  const aabb *aabbs;
+  const Object *objects;
+  const BufferType *buffer;
+};
+
 template <typename Index, typename BufferType, typename AABBGetter,
           typename MortonCalculater>
 class bvh {
@@ -27,6 +52,28 @@ public:
     num_internal_nodes = num_objs - 1;
     num_nodes = num_objs * 2 - 1;
     construct();
+  }
+
+  bvh_tree<index_t, buffer_t, false> get_tree() {
+    return {
+      num_objs,
+      num_nodes,
+      thrust::raw_pointer_cast(m_nodes.data()),
+      thrust::raw_pointer_cast(m_aabbs.data()),
+      thrust::raw_pointer_cast(m_objs.data()),
+      thrust::raw_pointer_cast(m_buffer.data())
+    };
+  }
+
+  bvh_tree<index_t, buffer_t, true> get_tree() const {
+    return {
+      num_objs,
+      num_nodes,
+      thrust::raw_pointer_cast(m_nodes.data()),
+      thrust::raw_pointer_cast(m_aabbs.data()),
+      thrust::raw_pointer_cast(m_objs.data()),
+      thrust::raw_pointer_cast(m_buffer.data())
+    };
   }
 
   void construct();
