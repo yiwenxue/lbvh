@@ -1,0 +1,16 @@
+
+#define STBI_MSC_SECURE_CRT
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#include "stb_image_write.h"
+#undef STBI_MSC_SECURE_CRT
+#undef STB_IMAGE_WRITE_IMPLEMENTATION
+#undef STB_IMAGE_IMPLEMENTATION
+
+#define TINYGLTF_IMPLEMENTATION
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_gltf.h"
+#include "tiny_obj_loader.h"
+#undef TINYGLTF_IMPLEMENTATION
+#undef TINYOBJLOADER_IMPLEMENTATION
