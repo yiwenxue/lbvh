@@ -51,7 +51,7 @@ struct TriangleMesh {
   ~TriangleMesh() = default;
 };
 
-#include "tiny_obj_loader.h"
+#include "loader/loader.h"
 
 std::vector<TriangleMesh> loadMesh(const std::string &filename,
                                    std::shared_ptr<Vertices> &vertices) {

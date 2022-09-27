@@ -16,43 +16,20 @@ endif()
 
 set (CMAKE_CUDA_SEPARABLE_COMPILATION on)
 
-# add_subdirectory(externals)
+add_subdirectory(externals)
 
-# add_subdirectory(display)
+add_subdirectory(display)
 
-# add_executable(main 
-# lbvh.cuh
-# main.cu
-# )
-
-# target_include_directories(main
-# PUBLIC 
-# ${CUDA_INCLUDE_DIRS})
-
-# target_link_libraries(main
-# display
-# ${CUDA_LIBRARIES})
-
-add_executable(test
-tiny_obj_loader.cpp
+add_executable(main
 bvh.cu
-test.cpp
+main.cpp
 )
 
-target_include_directories(test
+target_include_directories(main
 PUBLIC 
 ${CUDA_INCLUDE_DIRS})
 
-target_link_libraries(test
+target_link_libraries(main
+loader
+display
 ${CUDA_LIBRARIES})
-
-# add_executable(main
-# main.cpp
-# )
-
-# target_include_directories(main
-# PUBLIC 
-# ${CUDA_INCLUDE_DIRS})
-
-# target_link_libraries(main
-# ${CUDA_LIBRARIES})
