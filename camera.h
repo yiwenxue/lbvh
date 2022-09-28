@@ -6,8 +6,7 @@
  * @brief A simple camera class
  *
  */
-struct camera
-{
+struct camera {
   float4 pos;      // Camera position
   float4 view;     // View direction
   float4 up;       // Up direction
@@ -25,24 +24,21 @@ struct camera
  * @param jitter the jitter, which is used to create a depth of field effect
  * @return ray
  */
-__device__ __host__ ray getCamRay(const camera &cam, float2 uv, float2 jitter)
-{
-  float4 origin = cam.pos;
-  float4 direction = cam.view;
-  float4 up = cam.up;
-  float4 right = normalize(cross(cam.view, cam.up));
+__device__ __host__ ray getCamRay(const camera &cam, float2 uv, float2 jitter) {
+  float3 pos = make_float3(cam.pos);
+  float3 view = make_float3(cam.view);
+  float3 up = make_float3(cam.up);
 
-  float2 fov = cam.fov;
-  float aperture = cam.aperture;
-  float focalDist = cam.focalDist;
+  float3 right = normalize(cross(view, up));
+  float3 up2 = normalize(cross(right, view));
 
-  float2 jittered = (jitter - 0.5f) * aperture;
-  origin += right * jittered.x;
-  origin += up * jittered.y;
+  float3 dir = normalize(view + right * (uv.x - 0.5f) * cam.fov.x +
+                         up2 * (uv.y - 0.5f) * cam.fov.y);
 
-  direction += right * (uv.x - 0.5f) * fov.x;
-  direction += up * (uv.y - 0.5f) * fov.y;
-  direction = normalize(direction) * focalDist;
+  float3 jitteredPos =
+      pos + right * jitter.x * cam.aperture + up2 * jitter.y * cam.aperture;
 
-  return ray{origin, direction};
+  return ray{
+      make_float4(jitteredPos, 0.0f),
+      make_float4(normalize(jitteredPos + dir * cam.focalDist - pos), 0.0f)};
 }

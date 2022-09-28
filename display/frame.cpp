@@ -6,6 +6,9 @@
 #include <iostream>
 #include <vector>
 
+#include <cuda_gl_interop.h>
+#include <cuda_runtime.h>
+
 namespace display {
 
 namespace {
@@ -53,130 +56,139 @@ const std::vector<ShaderStage> shaderStages{
 };
 } // namespace
 
-Shader  *Frame::m_shader = nullptr;
-GLuint   Frame::m_vao    = 0;
-uint32_t Frame::m_count  = 0;
+Shader *Frame::m_shader = nullptr;
+GLuint Frame::m_vao = 0;
+int Frame::m_count = 0;
 
 void Frame::initialize() {
-    if (m_count == 0) {
-        m_shader = new Shader(shaderStages);
-        glGenVertexArrays(1, &m_vao);
-        glBindVertexArray(m_vao);
-    }
+  if (m_count == 0) {
+    m_shader = new Shader(shaderStages);
+    glGenVertexArrays(1, &m_vao);
+    glBindVertexArray(m_vao);
+  }
 
-    glGenTextures(1, &m_glTexture);
-    glBindTexture(GL_TEXTURE_2D, m_glTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, m_dim.width, m_dim.height, 0,
-                 GL_RGBA, GL_FLOAT, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glBindTexture(GL_TEXTURE_2D, 0);
+  glGenTextures(1, &m_glTexture);
+  glBindTexture(GL_TEXTURE_2D, m_glTexture);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, m_dim.x, m_dim.y, 0, GL_RGBA,
+               GL_FLOAT, nullptr);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+  cudaGraphicsGLRegisterImage(&m_cu_texture, m_glTexture, GL_TEXTURE_2D,
+                              cudaGraphicsRegisterFlagsNone);
+  cudaGraphicsMapResources(1, &m_cu_texture, 0);
+  cudaGraphicsSubResourceGetMappedArray(&m_cudaArray, m_cu_texture, 0, 0);
+  struct cudaResourceDesc resDesc;
+  memset(&resDesc, 0, sizeof(resDesc));
+  resDesc.resType = cudaResourceTypeArray;
+  resDesc.res.array.array = m_cudaArray;
+  cudaCreateSurfaceObject(&m_cudaSurf, &resDesc);
+  cudaGraphicsUnmapResources(1, &m_cu_texture, 0);
+
+  glBindTexture(GL_TEXTURE_2D, 0);
 }
 
-Frame::Frame(const Extent2D &size) : m_dim{size} {
-    initialize();
-    m_count++;
+Frame::Frame(const int2 &size) : m_dim{size} {
+  initialize();
+  m_count++;
 }
 
-Frame::Frame(uint32_t width, uint32_t height) : m_dim{width, height} {
-    initialize();
-    m_count++;
+Frame::Frame(int width, int height) : m_dim{make_int2(width, height)} {
+  initialize();
+  m_count++;
 }
 
 Frame::~Frame() {
-    glDeleteTextures(1, &m_glTexture);
-    m_count--;
-    if (m_count == 0) {
-        delete m_shader;
-        glDeleteVertexArrays(1, &m_vao);
-    }
+  glDeleteTextures(1, &m_glTexture);
+  assert(m_count > 0);
+  m_count--;
+  if (m_count == 0) {
+    delete m_shader;
+    glDeleteVertexArrays(1, &m_vao);
+  }
 }
 
-void Frame::present() const {
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_BLEND);
-    glDisable(GL_CULL_FACE);
+void Frame::present() {
+  glDisable(GL_DEPTH_TEST);
+  glDisable(GL_BLEND);
+  glDisable(GL_CULL_FACE);
 
-    m_shader->use();
+  m_shader->use();
 
-    glBindVertexArray(m_vao);
-    glBindTexture(GL_TEXTURE_2D, m_glTexture);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glBindVertexArray(0);
+  glBindVertexArray(m_vao);
+  glBindTexture(GL_TEXTURE_2D, m_glTexture);
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+  glBindTexture(GL_TEXTURE_2D, 0);
+  glBindVertexArray(0);
 }
 
 namespace {
 // a util function to convert rgb to rgba
 unsigned char *rgb2rgba(unsigned char *rgb, int width, int height) {
-    unsigned char *rgba = new unsigned char[width * height * 4];
-    for (int i = 0; i < width * height; i++) {
-        rgba[i * 4]     = rgb[i * 3];
-        rgba[i * 4 + 1] = rgb[i * 3 + 1];
-        rgba[i * 4 + 2] = rgb[i * 3 + 2];
-        rgba[i * 4 + 3] = 255;
-    }
-    return rgba;
+  unsigned char *rgba = new unsigned char[width * height * 4];
+  for (int i = 0; i < width * height; i++) {
+    rgba[i * 4] = rgb[i * 3];
+    rgba[i * 4 + 1] = rgb[i * 3 + 1];
+    rgba[i * 4 + 2] = rgb[i * 3 + 2];
+    rgba[i * 4 + 3] = 255;
+  }
+  return rgba;
 }
 } // namespace
 
-void Frame::load(const std::string &path) {
-    int width, height, channels;
-    stbi_set_flip_vertically_on_load(true);
-    unsigned char *data = stbi_load(path.c_str(), &width, &height, &channels, 0);
-    stbi_flip_vertically_on_write(false);
-    if (data) {
-        m_dim.width  = width;
-        m_dim.height = height;
-        glBindTexture(GL_TEXTURE_2D, m_glTexture);
-        if (channels == 3) {
-            unsigned char *rgba = rgb2rgba(data, width, height);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
-                         GL_UNSIGNED_BYTE, rgba);
-            delete[] rgba;
-        } else {
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
-                         GL_UNSIGNED_BYTE, data);
-        }
-        glBindTexture(GL_TEXTURE_2D, 0);
-        stbi_image_free(data);
-    } else {
-        std::cerr << "Failed to load texture: " + path << std::endl;
-    }
+void Frame::load(const float4 *data, int width, int height) {
+  assert(width == m_dim.x && height == m_dim.y);
+  cudaGraphicsMapResources(1, &m_cu_texture, 0);
+  cudaArray_t cuArray;
+  cudaGraphicsSubResourceGetMappedArray(&cuArray, m_cu_texture, 0, 0);
+  cudaMemcpy2DToArray(cuArray, 0, 0, data, width * sizeof(float4),
+                      width * sizeof(float4), height, cudaMemcpyDeviceToDevice);
+  cudaGraphicsUnmapResources(1, &m_cu_texture, 0);
 }
 
 void Frame::save(const std::string &path) const {
-    std::vector<unsigned char> data(m_dim.width * m_dim.height * 4);
-    glBindTexture(GL_TEXTURE_2D, m_glTexture);
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
-    glBindTexture(GL_TEXTURE_2D, 0);
-    stbi_flip_vertically_on_write(true);
-    stbi_write_png(path.c_str(), m_dim.width, m_dim.height, 4, data.data(),
-                   m_dim.width * 4);
-    stbi_flip_vertically_on_write(false);
+  std::vector<unsigned char> data(m_dim.x * m_dim.y * 4);
+  glBindTexture(GL_TEXTURE_2D, m_glTexture);
+  glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
+  glBindTexture(GL_TEXTURE_2D, 0);
+  stbi_flip_vertically_on_write(true);
+  stbi_write_png(path.c_str(), m_dim.x, m_dim.y, 4, data.data(), m_dim.x * 4);
+  stbi_flip_vertically_on_write(false);
 }
 
-void Frame::resize(uint32_t width, uint32_t height) {
-    m_dim.width  = width;
-    m_dim.height = height;
-    glBindTexture(GL_TEXTURE_2D, m_glTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA,
-                 GL_FLOAT, nullptr);
-    glBindTexture(GL_TEXTURE_2D, 0);
+void Frame::resize(int width, int height) {
+  m_dim.x = width;
+  m_dim.y = height;
+  glBindTexture(GL_TEXTURE_2D, m_glTexture);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA,
+               GL_FLOAT, nullptr);
+
+  cudaGraphicsGLRegisterImage(&m_cu_texture, m_glTexture, GL_TEXTURE_2D,
+                              cudaGraphicsRegisterFlagsNone);
+  cudaGraphicsMapResources(1, &m_cu_texture, 0);
+  cudaGraphicsSubResourceGetMappedArray(&m_cudaArray, m_cu_texture, 0, 0);
+  struct cudaResourceDesc resDesc;
+  memset(&resDesc, 0, sizeof(resDesc));
+  resDesc.resType = cudaResourceTypeArray;
+  resDesc.res.array.array = m_cudaArray;
+  cudaCreateSurfaceObject(&m_cudaSurf, &resDesc);
+  cudaGraphicsUnmapResources(1, &m_cu_texture, 0);
+
+  glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void Frame::clear() {
-    GLuint fbo;
-    glGenFramebuffers(1, &fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                           m_glTexture, 0);
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glDeleteFramebuffers(1, &fbo);
+  GLuint fbo;
+  glGenFramebuffers(1, &fbo);
+  glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                         m_glTexture, 0);
+  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT);
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glDeleteFramebuffers(1, &fbo);
 }
 
 } // namespace display

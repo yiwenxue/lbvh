@@ -6,6 +6,17 @@
 #include <iostream>
 #include <string>
 
+#define CHECK_CUDA(FN)                                                         \
+  {                                                                            \
+    auto fn_err = FN;                                                          \
+    if (fn_err != cudaSuccess) {                                               \
+      std::cout << #FN << " failed due to " << cudaGetErrorName(fn_err)        \
+                << ": " << cudaGetErrorString(fn_err) << std::endl             \
+                << std::flush;                                                 \
+      throw std::runtime_error(#FN);                                           \
+    }                                                                          \
+  }
+
 __device__ __host__ inline unsigned int expand_bits(unsigned int v) noexcept {
   v = (v * 0x00010001u) & 0xFF0000FFu;
   v = (v * 0x00000101u) & 0x0F00F00Fu;

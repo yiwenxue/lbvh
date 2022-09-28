@@ -1,46 +1,54 @@
 #pragma once
 #include "glad/glad.h"
 #include "shader.h"
-#include "types.h"
 #include "window.h"
 #include <algorithm>
 
 namespace display {
 
-// Frame is infact a gltexture, its texture unit will be passed to cuda to
-// register at cuda. when cuda finished its calculation, the program will call a
-// present, and then the content will be drawn using a simple shader
+/**
+ * @brief A basic frame which have the ability to interop with CUDA
+ * @details A frame can be used to display a texture on the screen. It can also
+ * be write to by CUDA. There are two ways to write to a frame. The first is to
+ * upload contents from a device buffer to the frame. The second is to write to
+ * a cudaSurfaceObject_t using surf2Dwrite.
+ */
 class Frame {
 public:
-  Frame(uint32_t width, uint32_t height);
-  Frame(const Extent2D &size);
+  Frame(int width, int height);
+  Frame(const int2 &size);
 
   ~Frame();
 
-  GLuint getHandle() const noexcept { return m_glTexture; }
+  void present();
 
-  void present() const;
+  cudaSurfaceObject_t getSurf() noexcept { return m_cudaSurf; }
 
-  void load(const std::string &path);
+  void load(const float4 *data, int width, int height);
 
   void save(const std::string &path) const;
 
-  void resize(uint32_t width, uint32_t height);
+  void resize(int width, int height);
 
-  void resize(const Extent2D &size) { resize(size.width, size.height); }
+  void resize(const int2 &size) { resize(size.x, size.y); }
 
-  Extent2D getSize() const noexcept { return m_dim; }
+  int2 getSize() const noexcept { return m_dim; }
 
   void clear();
 
 private:
   void initialize();
 
-  Extent2D m_dim;
+  int2 m_dim;
   GLuint m_glTexture;
   static Shader *m_shader;
   static GLuint m_vao;
-  static uint32_t m_count;
+
+  cudaGraphicsResource_t m_cu_texture;
+  cudaSurfaceObject_t m_cudaSurf;
+  cudaArray_t m_cudaArray;
+
+  static int m_count;
 };
 
 }; // namespace display

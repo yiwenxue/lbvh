@@ -20,6 +20,8 @@ add_subdirectory(externals)
 
 add_subdirectory(display)
 
+add_subdirectory(demos)
+
 add_executable(main
 bvh.cu
 main.cpp

@@ -1,6 +1,7 @@
 
 #include <chrono>
 #include <iostream>
+#include <iterator>
 #include <ratio>
 
 #include "aabb.h"
@@ -12,6 +13,9 @@
 #include "display/frame.h"
 #include "display/gui.h"
 #include "display/window.h"
+
+#include <cuda_gl_interop.h>
+#include <cuda_runtime.h>
 
 using tbvh =
     bvh<int3, float4, triangle_mesh_aabb, default_morton_code_calculator>;
@@ -50,12 +54,11 @@ int main(int argc, char **argv) {
   display::GUI gui(&window);
   display::Frame frame(800, 600);
 
+  // save the content in glTexture to an image
+  frame.save("test.png");
+
   std::function<void()> save = [&frame]() {
     frame.save("/home/yiwenxue/Pictures/cornell_dump.png");
-  };
-
-  std::function<void()> load = [&frame]() {
-    frame.load("/home/yiwenxue/Pictures/cornell.png");
   };
 
   std::function<void()> clear = [&frame]() { frame.clear(); };
@@ -106,10 +109,9 @@ int main(int argc, char **argv) {
     frame.present();
     gui.begin();
 
-    gui.window("frame", {200, 200}, [&]() {
+    gui.window("frame", [&]() {
       auto ext = frame.getSize();
-      gui.text("frame size: %dx%d", ext.width, ext.height);
-      gui.button("load", load);
+      gui.text("frame size: %dx%d", ext.x, ext.y);
       gui.button("clear", clear);
       gui.button("save", save);
     });
