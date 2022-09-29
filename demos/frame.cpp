@@ -24,6 +24,8 @@ extern void renderer(float4 *framebuffer, int width, int height);
 
 extern void renderSurf(cudaSurfaceObject_t surf, int width, int height);
 
+extern void render_frame(cudaSurfaceObject_t surf, int width, int height);
+
 #include "../bvh.h"
 #include "../camera.h"
 
@@ -68,7 +70,7 @@ int main(int argc, char **argv) {
         // renderer(framebuffer, width, height);
         // frame.load(framebuffer, width, height);
     } {
-      renderSurf(cusurf, width, height);
+      render_frame(cusurf, width, height);
     }
   };
 
