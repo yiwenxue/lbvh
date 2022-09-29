@@ -10,6 +10,3 @@ struct ray {
   float4 origin;
   float4 direction;
 };
-
-#include "../bvh.h"
-#include "../camera.h"

@@ -54,7 +54,7 @@ public:
   }
 
   bvh_tree<index_t, buffer_t, false> get_tree() {
-    return {num_objs,
+    return bvh_tree<index_t, buffer_t, false>{num_objs,
             num_nodes,
             thrust::raw_pointer_cast(m_nodes.data()),
             thrust::raw_pointer_cast(m_aabbs.data()),
@@ -62,8 +62,8 @@ public:
             thrust::raw_pointer_cast(m_buffer.data())};
   }
 
-  bvh_tree<index_t, buffer_t, true> get_tree() const {
-    return {num_objs,
+  bvh_tree<index_t, buffer_t, true> get_ctree() const {
+    return bvh_tree<index_t, buffer_t, true>{num_objs,
             num_nodes,
             thrust::raw_pointer_cast(m_nodes.data()),
             thrust::raw_pointer_cast(m_aabbs.data()),

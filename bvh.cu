@@ -218,7 +218,7 @@ void bvh<Index, Buffer, AABBGetter, MortonCalculater>::construct() {
 
         m_nodes.resize(num_nodes, default_node);
         thrust::transform(thrust::device,
-            indices.begin(), indices.end(), 
+            indices.begin(), indices.end(),
             m_nodes.begin() + num_internal_nodes,
             [] __device__ (const unsigned int idx) {
                 bvh_node node;
@@ -277,6 +277,69 @@ void bvh<Index, Buffer, AABBGetter, MortonCalculater>::construct() {
                 return;
             }
         );
+    }
+
+    // check if all nodes are constructed correctly.
+    {
+        const auto limit = num_nodes;
+
+        // check if all internal nodes have two children and one parent.
+        thrust::device_vector<int> flag_container(num_nodes, 0);
+        const auto flags = thrust::raw_pointer_cast(flag_container.data());
+        const auto nodes = thrust::raw_pointer_cast(m_nodes.data());
+
+        thrust::for_each(
+            thrust::device,
+            thrust::make_counting_iterator<unsigned int>(num_internal_nodes),
+            thrust::make_counting_iterator<unsigned int>(num_nodes),
+            [flags, nodes, limit] __device__ (const unsigned int idx) {
+                const auto node = nodes[idx];
+                const auto lidx = node.left_idx;
+                const auto ridx = node.right_idx;
+                const auto pidx = node.parent_idx;
+                const auto oidx = node.object_idx;
+                if ((lidx != 0xFFFFFFFF) || (ridx != 0xFFFFFFFF) || (oidx == 0xFFFFFFFF) || (oidx >= limit)
+                    || (pidx == 0xFFFFFFFF) || (pidx >= limit)) {
+                    atomicAdd(flags + idx, 1);
+                }
+            }
+        );
+
+        thrust::for_each(
+            thrust::device,
+            thrust::make_counting_iterator<unsigned int>(1),
+            thrust::make_counting_iterator<unsigned int>(num_internal_nodes),
+            [flags, nodes, limit] __device__ (const unsigned int idx) {
+                const auto node = nodes[idx];
+                const auto lidx = node.left_idx;
+                const auto ridx = node.right_idx;
+                const auto pidx = node.parent_idx;
+                const auto oidx = node.object_idx;
+                if ((lidx == 0xFFFFFFFF) || (ridx == 0xFFFFFFFF) || (pidx == 0xFFFFFFFF) || (oidx != 0xFFFFFFFF)
+                    || (lidx >= limit) || (ridx >= limit) || (pidx >= limit)) {
+                    atomicAdd(flags + idx, 1);
+                }
+            }
+        );
+
+        const auto res = thrust::reduce(
+            thrust::device,
+            flag_container.begin(), flag_container.end()
+        );
+
+        if (res != 0) {
+            std::cerr << "Error: invalid BVH construction. errors: " << res << std::endl;
+            std::exit(1);
+        }
+    }
+
+    {
+        // show the aabbs
+        thrust::host_vector<aabb> aabbs(m_aabbs);
+        for (unsigned int i = 0; i < num_nodes; ++i) {
+            const auto& box = aabbs[i];
+            std::cout << "node " << i << ": " << box.lower.x << " - " << box.upper.x << std::endl;
+        }
     }
 }
 

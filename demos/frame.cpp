@@ -13,6 +13,10 @@
 #include "display/gui.h"
 #include "display/window.h"
 
+#include "../kernel.h"
+#include "geometry.h"
+#include "../bvh.h"
+
 #include <cuda_gl_interop.h>
 #include <cuda_runtime.h>
 
@@ -26,6 +30,8 @@ extern void renderSurf(cudaSurfaceObject_t surf, int width, int height);
 
 extern void render_frame(cudaSurfaceObject_t surf, int width, int height);
 
+extern void render_frame(cudaSurfaceObject_t surf, int width, int height, const bvh_tree<int3, float4, true> &tree);
+
 #include "../bvh.h"
 #include "../camera.h"
 
@@ -33,9 +39,13 @@ template <typename Object, typename BufferType>
 void rayTracer(const camera &cam, int2 frameSize,
                const bvh_tree<Object, BufferType, true> &root) {}
 
+using tbvh =
+    bvh<int3, float4, triangle_mesh_aabb, default_morton_code_calculator>;
+
 int main(int argc, char **argv) {
   display::WindowDescription desc;
   desc.title = "demo";
+  desc.position = {100, 100};
   desc.size = {1280, 720};
   desc.visible = true;
   desc.borderless = false;
@@ -53,6 +63,25 @@ int main(int argc, char **argv) {
     return -1;
   }
 
+  std::vector<std::shared_ptr<Vertices>> vertices_pool;
+  std::vector<TriangleMesh> meshes;
+
+  auto loader = [&](std::string filename) {
+    vertices_pool.emplace_back();
+    auto &vertices = vertices_pool.back();
+    auto instances = loadMesh(filename, vertices);
+    std::move(instances.begin(), instances.end(), std::back_inserter(meshes));
+  };
+
+  loader("../../../dragon.obj");
+
+  // for first mesh, build bvh
+  const auto &mesh = meshes[0];
+  const auto &pos = mesh.m_mesh->pos;
+  tbvh tree(mesh.indices.begin(), mesh.indices.end(), pos.begin(), pos.end());
+
+  auto ctree = tree.get_ctree();
+
   display::GUI gui(&window);
   display::Frame frame(1280, 720);
 
@@ -60,18 +89,12 @@ int main(int argc, char **argv) {
   const auto width = extent.x;
   const auto height = extent.y;
 
-  float4 *framebuffer;
-  cudaMalloc(&framebuffer, width * height * sizeof(float4));
   auto cusurf = frame.getSurf();
 
   std::function<void()> render = [&]() {
     std::cout << "rendering" << std::endl;
-    {
-        // renderer(framebuffer, width, height);
-        // frame.load(framebuffer, width, height);
-    } {
-      render_frame(cusurf, width, height);
-    }
+    render_frame(cusurf, width, height, ctree);
+    cudaDeviceSynchronize();
   };
 
   std::function<void()> save = [&]() {
@@ -104,9 +127,10 @@ int main(int argc, char **argv) {
     gui.end();
 
     window.swapBuffers();
-  }
 
-  cudaFree(framebuffer);
+    // render_frame(cusurf, width, height);
+    // render_frame(cusurf, width, height, ctree);
+  }
 
   return 0;
 }

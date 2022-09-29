@@ -1,6 +1,7 @@
 add_executable(frame
 frame.cpp
 kernel.cu
+../bvh.cu
 )
 
 target_include_directories(frame
