@@ -48,12 +48,12 @@ morton_code(double4 xyz, double resolution = 1024.0) noexcept {
 }
 
 __device__ inline aabb aabb_merge(const aabb &lhs, const aabb &rhs) noexcept {
-  return aabb{make_float4(::fminf(lhs.lower.x, rhs.lower.x),
-                          ::fminf(lhs.lower.y, rhs.lower.y),
-                          ::fminf(lhs.lower.z, rhs.lower.z), 0.0f),
-              make_float4(::fmaxf(lhs.upper.x, rhs.upper.x),
+  return aabb{make_float4(::fmaxf(lhs.upper.x, rhs.upper.x),
                           ::fmaxf(lhs.upper.y, rhs.upper.y),
-                          ::fmaxf(lhs.upper.z, rhs.upper.z), 0.0f)};
+                          ::fmaxf(lhs.upper.z, rhs.upper.z), 0.0f),
+              make_float4(::fminf(lhs.lower.x, rhs.lower.x),
+                          ::fminf(lhs.lower.y, rhs.lower.y),
+                          ::fminf(lhs.lower.z, rhs.lower.z), 0.0f)};
 }
 
 __device__ inline float4 aabb_center(const aabb &box) noexcept {

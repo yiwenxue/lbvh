@@ -13,9 +13,9 @@
 #include "display/gui.h"
 #include "display/window.h"
 
+#include "../bvh.h"
 #include "../kernel.h"
 #include "geometry.h"
-#include "../bvh.h"
 
 #include <cuda_gl_interop.h>
 #include <cuda_runtime.h>
@@ -30,7 +30,8 @@ extern void renderSurf(cudaSurfaceObject_t surf, int width, int height);
 
 extern void render_frame(cudaSurfaceObject_t surf, int width, int height);
 
-extern void render_frame(cudaSurfaceObject_t surf, int width, int height, const bvh_tree<int3, float4, true> &tree);
+extern void render_frame(cudaSurfaceObject_t surf, int width, int height,
+                         const bvh_tree<int3, float4, true> &tree);
 
 #include "../bvh.h"
 #include "../camera.h"
@@ -73,7 +74,7 @@ int main(int argc, char **argv) {
     std::move(instances.begin(), instances.end(), std::back_inserter(meshes));
   };
 
-  loader("../../../dragon.obj");
+  loader("/home/yiwenxue/program/spatial/dragon.obj");
 
   // for first mesh, build bvh
   const auto &mesh = meshes[0];

@@ -9,6 +9,21 @@
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 
+#include <iostream>
+
+std::ostream &operator<<(std::ostream &os, const float3 v) {
+  return os << "float3{" << v.x << ", " << v.y << ", " << v.z << "}";
+}
+
+std::ostream &operator<<(std::ostream &os, const float4 &v) {
+  return os << "float4{" << v.x << ", " << v.y << ", " << v.z << ", " << v.w
+            << "}";
+}
+
+std::ostream &operator<<(std::ostream &os, const aabb &box) {
+  return os << "aabb{upper: " << box.upper << ", lower: " << box.lower << "}";
+}
+
 __device__ inline int common_upper_bits(const unsigned int lhs, const unsigned int rhs) noexcept {
     return ::__clz(lhs ^ rhs);
 }
@@ -205,6 +220,8 @@ void bvh<Index, Buffer, AABBGetter, MortonCalculater>::construct() {
             morton64.clear();
             morton64.shrink_to_fit();
         }
+
+        std::cout << "whole aabb: " << aabb_whole << std::endl;
     }
 
     {
@@ -279,6 +296,9 @@ void bvh<Index, Buffer, AABBGetter, MortonCalculater>::construct() {
         );
     }
 
+{   thrust::host_vector<aabb> aabbs(m_aabbs);
+    std::copy(aabbs.begin(), aabbs.end(), std::ostream_iterator<aabb>(std::cout, "\n"));
+}
     // check if all nodes are constructed correctly.
     {
         const auto limit = num_nodes;
@@ -330,15 +350,6 @@ void bvh<Index, Buffer, AABBGetter, MortonCalculater>::construct() {
         if (res != 0) {
             std::cerr << "Error: invalid BVH construction. errors: " << res << std::endl;
             std::exit(1);
-        }
-    }
-
-    {
-        // show the aabbs
-        thrust::host_vector<aabb> aabbs(m_aabbs);
-        for (unsigned int i = 0; i < num_nodes; ++i) {
-            const auto& box = aabbs[i];
-            std::cout << "node " << i << ": " << box.lower.x << " - " << box.upper.x << std::endl;
         }
     }
 }
