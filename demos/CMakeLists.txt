@@ -2,6 +2,7 @@ add_executable(frame
 frame.cpp
 kernel.cu
 ../bvh.cu
+../camera.cpp
 )
 
 target_include_directories(frame

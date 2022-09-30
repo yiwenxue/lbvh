@@ -4,6 +4,7 @@
 #include "aabb.h"
 #include <cuda_runtime.h>
 #include <thrust/device_vector.h>
+#include <thrust/host_vector.h>
 
 struct bvh_node {
   unsigned int parent_idx;
@@ -85,5 +86,44 @@ private:
   thrust::device_vector<aabb> m_aabbs;
   thrust::device_vector<bvh_node> m_nodes;
 };
+
+template <typename Index, typename BufferType>
+bool bvh_tree_validator(const bvh_tree<Index, BufferType, true> &tree) {
+  return true;
+}
+
+#include <iostream>
+#include <fstream>
+
+std::ostream &operator<<(std::ostream &os, const float3 &v);
+std::ostream &operator<<(std::ostream &os, const float4 &v);
+std::ostream &operator<<(std::ostream &os, const aabb &v);
+
+template <typename Index, typename BufferType>
+void bvh_tree_visualizer(const bvh_tree<Index, BufferType, true> &tree) {
+  auto num_nodes = tree.num_nodes;
+    thrust::host_vector<aabb> aabbs(tree.aabbs, tree.aabbs + num_nodes);
+    thrust::host_vector<bvh_node> nodes(tree.nodes, tree.nodes + num_nodes);
+
+    std::cout << "size: " << aabbs.size() << std::endl;
+
+    // visualize the tree structure using graphviz
+    std::ofstream ofs("lbvh.dot");
+    ofs << "digraph G {" << std::endl;
+    for (unsigned int i = 0; i < num_nodes; ++i) {
+        const auto& node = nodes[i];
+        const auto& aabb = aabbs[i];
+        // for leaf nodes, render as a box
+        if (node.object_idx != 0xFFFFFFFF) {
+            ofs << "  " << i << " [label=\"" << i << "\\nupper" << aabb.upper << "\\nlower" << aabb.lower << "\\n" << node.object_idx << "\"];" << std::endl;
+        } else {
+            ofs << "  " << i << " [label=\"" << i << "\\nupper" << aabb.upper << "\\nlower" << aabb.lower << "\"];" << std::endl;
+            // links
+            ofs << i << " -> " << node.left_idx << ";" << std::endl;
+            ofs << i << " -> " << node.right_idx << ";" << std::endl;
+        }
+    }
+    ofs << "}" << std::endl;
+}
 
 #endif

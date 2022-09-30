@@ -34,7 +34,7 @@ void GUI::end() {
 
 void GUI::window(const std::string &title,
                  const std::function<void()> &callback) {
-  ImGui::Begin(title.c_str(), nullptr, ImGuiWindowFlags_NoResize);
+  ImGui::Begin(title.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize);
   callback();
   ImGui::End();
 }

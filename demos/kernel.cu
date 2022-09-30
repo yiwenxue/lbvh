@@ -58,7 +58,7 @@ void renderSurf(cudaSurfaceObject_t surf, int width, int height)
  * @param jitter the jitter, which is used to create a depth of field effect
  * @return ray
  */
-__device__ __host__ ray getCamRay(const camera *cam, float2 uv, float2 jitter)
+__device__ __host__ ray getCamRay(const camera_data *cam, float2 uv, float2 jitter)
 {
     float3 pos = make_float3(cam->pos);
     float3 view = normalize(make_float3(cam->view));
@@ -68,8 +68,8 @@ __device__ __host__ ray getCamRay(const camera *cam, float2 uv, float2 jitter)
     float3 up2 = normalize(cross(right, view));
 
     float3 dir = normalize(
-        view * cam->focalDist +
-        right * (uv.x - 0.5f) * tan(cam->fov.x / 360.0 * M_PI) +
+        view * cam->focalDist -
+        right * (uv.x - 0.5f) * tan(cam->fov.x / 360.0 * M_PI) -
         up2 * (uv.y - 0.5f) * tan(cam->fov.y / 360.0 * M_PI));
 
     float3 jitteredPos =
@@ -104,7 +104,7 @@ __device__ float intersectSphere(ray mray, const float4 sphere)
     }
 }
 
-__global__ void traceRay(cudaSurfaceObject_t surf, int width, int height, const camera *cam, const float4 *spheres, int sphereCount)
+__global__ void traceRay(cudaSurfaceObject_t surf, int width, int height, const camera_data *cam, const float4 *spheres, int sphereCount)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -152,7 +152,7 @@ struct SphereGen
     }
 };
 
-void render_frame(cudaSurfaceObject_t surf, int width, int height)
+void render_frame(cudaSurfaceObject_t surf, int width, int height, camera_data &cam)
 {
     // generate spheres
     thrust::device_vector<float4> spheres(SPHERE_COUNT);
@@ -161,22 +161,12 @@ void render_frame(cudaSurfaceObject_t surf, int width, int height)
     float4 base_sphere = make_float4(0.0f, -1000.0f - 2.0f, 0.0f, 1000.0f);
     spheres[0] = base_sphere;
 
-    camera *cam_d = nullptr;
-    cudaMalloc(&cam_d, sizeof(camera));
-    // generate camera
-    float fov = 45.0f;
-    camera cam{
-        make_float4(0, 5, -10, 0),
-        make_float4(0, -0.2, 1, 0),
-        make_float4(0, 1, 0, 0),
-        make_float2(fov, fov * height / width),
-        0.01f,
-        0.1f,
-    };
-    cudaMemcpy(cam_d, &cam, sizeof(camera), cudaMemcpyHostToDevice);
+    camera_data *cam_d = nullptr;
+    cudaMalloc(&cam_d, sizeof(camera_data));
+    cudaMemcpy(cam_d, &cam, sizeof(camera_data), cudaMemcpyHostToDevice);
     cudaDeviceSynchronize();
 
-    const camera *pCam = cam_d;
+    const camera_data *pCam = cam_d;
     const float4 *pSpheres = thrust::raw_pointer_cast(spheres.data());
 
     // loop for each pixel
@@ -195,30 +185,28 @@ __device__ float intersectTriangle(ray iray, int3 index, const float4 *buffer) {
     float4 v1 = buffer[index.y];
     float4 v2 = buffer[index.z];
 
-    // ray-triangle intersection
+    // ray triangle intersection no culling
     float3 e1 = make_float3(v1) - make_float3(v0);
     float3 e2 = make_float3(v2) - make_float3(v0);
-    float3 s1 = cross(make_float3(iray.direction), e2);
+    float3 p = cross(make_float3(iray.direction), e2);
+    float det = dot(e1, p);
+    float invDet = 1.0f / det;
 
-    float divisor = dot(s1, e1);
-    if (divisor == 0.0f)
+    float3 t = make_float3(iray.origin) - make_float3(v0);
+    float u = dot(t, p) * invDet;
+    if (u < 0.0f || u > 1.0f)
         return -1.0f;
 
-    float3 d = make_float3(iray.origin) - make_float3(v0);
-    float b1 = dot(d, s1) / divisor;
-    if (b1 < 0.0f || b1 > 1.0f)
+    float3 q = cross(t, e1);
+    float v = dot(make_float3(iray.direction), q) * invDet;
+    if (v < 0.0f || u + v > 1.0f)
         return -1.0f;
 
-    float3 s2 = cross(d, e1);
-    float b2 = dot(make_float3(iray.direction), s2) / divisor;
-    if (b2 < 0.0f || b1 + b2 > 1.0f)
+    float t0 = dot(e2, q) * invDet;
+    if (t0 <= 0.0f)
         return -1.0f;
 
-    float t = dot(e2, s2) / divisor;
-    if (t < 0.0f)
-        return -1.0f;
-
-    return 1;
+    return t0;
 }
 
 __device__ bool ray_aabb_intersect (ray iray, aabb box) {
@@ -271,28 +259,36 @@ __device__ intersection closestHitProgram(const ray &iray, const bvh_tree<int3, 
         const auto ridx = nodes[idx].right_idx;
         if (ray_aabb_intersect(iray, aabbs[lidx])) {
             const auto obj_idx = nodes[lidx].object_idx;
+            const auto t = ray_aabb_intersect_p(iray, aabbs[lidx]);
+            if ((t > 0) && (isect.distance < 0.0f || t < isect.distance)) {
+                isect.distance = t;
+            }
+
             if (obj_idx != 0xFFFFFFFF) { // leaf nodes
                 const auto obj = objects[obj_idx];
                 // const auto t = intersectTriangle(iray, obj, buffer);
-                const auto t = ray_aabb_intersect_p(iray, aabbs[lidx]);
-                if ( (isect.distance < 0.0f || t < isect.distance)) {
-                    isect.distance = t;
-                    // isect.index = obj_idx;
-                }
+                // const auto t = ray_aabb_intersect_p(iray, aabbs[lidx]);
+                // if ( (isect.distance < 0.0f || t < isect.distance)) {
+                //     isect.distance = t;
+                // }
             } else { // internal node
                 *stackPtr++ = lidx;
             }
         }
         if (ray_aabb_intersect(iray, aabbs[ridx])) {
             const auto obj_idx = nodes[ridx].object_idx;
+            const auto t = ray_aabb_intersect_p(iray, aabbs[lidx]);
+            if ((t > 0) && (isect.distance < 0.0f || t < isect.distance)) {
+                isect.distance = t;
+            }
+
             if (obj_idx != 0xFFFFFFFF) { // leaf nodes
                 const auto obj = objects[obj_idx];
                 // const auto t = intersectTriangle(iray, obj, buffer);
-                const auto t = ray_aabb_intersect_p(iray, aabbs[ridx]);
-                if ( (isect.distance < 0.0f || t < isect.distance)) {
-                    isect.distance = t;
-                    // isect.index = obj_idx;
-                }
+                // const auto t = ray_aabb_intersect_p(iray, aabbs[ridx]);
+                // if ( (isect.distance < 0.0f || t < isect.distance)) {
+                //     isect.distance = t;
+                // }
             } else { // internal node
                 *stackPtr++ = ridx;
             }
@@ -302,7 +298,7 @@ __device__ intersection closestHitProgram(const ray &iray, const bvh_tree<int3, 
     return isect;
 }
 template <typename Index, typename BufferType>
-__global__ void traceRay(cudaSurfaceObject_t surf, int width, int height, const camera *cam, const bvh_tree<Index, BufferType, true> *tree)
+__global__ void traceRay(cudaSurfaceObject_t surf, int width, int height, const camera_data *cam, const bvh_tree<Index, BufferType, true> *tree)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -320,32 +316,25 @@ __global__ void traceRay(cudaSurfaceObject_t surf, int width, int height, const 
 
     // ray-triangle intersection
     intersection isect = closestHitProgram(mray, *tree);
-    // if (isect.distance > 0.0f) {
-        depth = isect.distance;
-    // }
+    if (isect.distance > 0.0f) {
+        depth = abs(isect.distance);
+    }
 
-    float far = 10.0f;
+    float far = 100.0f;
     float near = 0.1f;
 
     depth = (depth - near) / (far - near);
 
+    // depth = 1 - depth;
+
     surf2Dwrite(make_float4(depth, depth, depth, 1.0f), surf, x * sizeof(float4), y, cudaBoundaryModeZero);
 }
 
-void render_frame(cudaSurfaceObject_t surf, int width, int height, const bvh_tree<int3, float4, true> &tree) {
-    camera *cam_d = nullptr;
-    cudaMalloc(&cam_d, sizeof(camera));
-    // generate camera
-    float fov = 45.0f;
-    camera cam{
-        make_float4(0, 0, -2000, 0),
-        make_float4(0, 0, 1, 0),
-        make_float4(0, 1, 0, 0),
-        make_float2(fov, fov * height / width),
-        0.01f,
-        0.1f,
-    };
-    cudaMemcpy(cam_d, &cam, sizeof(camera), cudaMemcpyHostToDevice);
+void render_frame(cudaSurfaceObject_t surf, int width, int height, camera_data &cam, const bvh_tree<int3, float4, true> &tree) {
+    camera_data *cam_d = nullptr;
+    cudaMalloc(&cam_d, sizeof(camera_data));
+    // generate camera_data
+    cudaMemcpy(cam_d, &cam, sizeof(camera_data), cudaMemcpyHostToDevice);
     cudaDeviceSynchronize();
 
     bvh_tree<int3, float4, true> *d_tree;

@@ -22,16 +22,16 @@ add_subdirectory(display)
 
 add_subdirectory(demos)
 
-add_executable(main
-bvh.cu
-main.cpp
-)
+# add_executable(main
+# bvh.cu
+# main.cpp
+# )
 
-target_include_directories(main
-PUBLIC 
-${CUDA_INCLUDE_DIRS})
+# target_include_directories(main
+# PUBLIC 
+# ${CUDA_INCLUDE_DIRS})
 
-target_link_libraries(main
-loader
-display
-${CUDA_LIBRARIES})
+# target_link_libraries(main
+# loader
+# display
+# ${CUDA_LIBRARIES})

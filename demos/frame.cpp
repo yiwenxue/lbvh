@@ -20,25 +20,96 @@
 #include <cuda_gl_interop.h>
 #include <cuda_runtime.h>
 
+// camera control
+#include "../camera.h"
+
+int2 frameSize = {1280, 720};
+float currentFrame = 0;
+float deltaTime    = 0;
+
+Camera globalCamera;
+
+double lastX = 0;
+double lastY = 0;
+
+bool mouseEnabled = false;
+
 void glfwWindowResize(GLFWwindow *window, int width, int height) {
   glViewport(0, 0, width, height);
+}
+
+void glfwScrollCallback(GLFWwindow *window, double xoffset, double yoffset)
+{
+    globalCamera.changeRadius(yoffset * -0.01);
+    std::cout << "Radius: " << globalCamera.radius << std::endl;
+}
+
+void glfwMouseCallback(GLFWwindow *window, double xpos, double ypos)
+{
+    double xoffset = xpos - lastX;
+    double yoffset = lastY - ypos;
+
+    lastX = xpos;
+    lastY = ypos;
+
+    globalCamera.changePitch(yoffset * -0.01 * mouseEnabled);
+    globalCamera.changeYaw(xoffset * -0.01 * mouseEnabled);
+}
+
+void glfwMouseKeyCallback(GLFWwindow *window, int key, int action, int mods)
+{
+    if (key == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS && !mouseEnabled)
+    {
+        glfwGetCursorPos(window, &lastX, &lastY);
+        mouseEnabled = true;
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    }
+}
+
+void glfwKeyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+{
+    if (key == GLFW_MOUSE_BUTTON_1 && action == GLFW_PRESS)
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+        if (mouseEnabled)
+        {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            mouseEnabled = false;
+        }
+        else
+            glfwSetWindowShouldClose(window, true);
+}
+
+void processInput(GLFWwindow *window, float delta)
+{
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        globalCamera.move(10 * delta);
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        globalCamera.move(-10 * delta);
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        globalCamera.strafe(-10 * delta);
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        globalCamera.strafe(10 * delta);
+
+    // std::cout << "center: " << globalCamera.centerPosition.x << ", " << globalCamera.centerPosition.y << ", " << globalCamera.centerPosition.z << std::endl;
+}
+
+void glfwErrorCallback(int error, const char *description)
+{
+    std::cerr << "GLFW error: " << description << std::endl;
 }
 
 extern void renderer(float4 *framebuffer, int width, int height);
 
 extern void renderSurf(cudaSurfaceObject_t surf, int width, int height);
 
-extern void render_frame(cudaSurfaceObject_t surf, int width, int height);
+extern void render_frame(cudaSurfaceObject_t surf, int width, int height, camera_data &cam);
 
-extern void render_frame(cudaSurfaceObject_t surf, int width, int height,
+extern void render_frame(cudaSurfaceObject_t surf, int width, int height, camera_data &cam,
                          const bvh_tree<int3, float4, true> &tree);
 
 #include "../bvh.h"
 #include "../camera.h"
-
-template <typename Object, typename BufferType>
-void rayTracer(const camera &cam, int2 frameSize,
-               const bvh_tree<Object, BufferType, true> &root) {}
 
 using tbvh =
     bvh<int3, float4, triangle_mesh_aabb, default_morton_code_calculator>;
@@ -58,6 +129,16 @@ int main(int argc, char **argv) {
   display::Window window(desc);
   auto windowHandle = window.getWindowHandle();
   glfwSetWindowSizeCallback(windowHandle, glfwWindowResize);
+  glfwSetKeyCallback(windowHandle, glfwKeyCallback);
+  glfwSetErrorCallback(glfwErrorCallback);
+  glfwSetWindowSizeCallback(windowHandle, glfwWindowResize);
+  glfwSetFramebufferSizeCallback(windowHandle, glfwWindowResize);
+  glfwSetCursorPosCallback(windowHandle, glfwMouseCallback);
+  glfwSetScrollCallback(windowHandle, glfwScrollCallback);
+  glfwSetMouseButtonCallback(windowHandle, glfwMouseKeyCallback);
+
+  globalCamera.setRes(frameSize.x, frameSize.y);
+  camera_data cam_data;
 
   if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
     std::cout << "Failed to initialize GLAD" << std::endl;
@@ -74,7 +155,8 @@ int main(int argc, char **argv) {
     std::move(instances.begin(), instances.end(), std::back_inserter(meshes));
   };
 
-  loader("/home/yiwenxue/program/spatial/dragon.obj");
+  loader("./dragon.obj");
+  // loader("./000.obj");
 
   // for first mesh, build bvh
   const auto &mesh = meshes[0];
@@ -92,10 +174,15 @@ int main(int argc, char **argv) {
 
   auto cusurf = frame.getSurf();
 
+  std::function<void()> visualize = [&]() {
+    bvh_tree_visualizer(ctree);
+    std::cout << "save to dot" << std::endl;
+  };
+
   std::function<void()> render = [&]() {
-    std::cout << "rendering" << std::endl;
-    render_frame(cusurf, width, height, ctree);
-    cudaDeviceSynchronize();
+    globalCamera.buildRenderCamera(cam_data);
+    // Timer timer("bvh render");
+    render_frame(cusurf, width, height, cam_data, ctree);
   };
 
   std::function<void()> save = [&]() {
@@ -107,10 +194,21 @@ int main(int argc, char **argv) {
     std::cout << "clearing" << std::endl;
     frame.clear();
   };
+  static float lastFrame = 0;
 
   while (!window.shouldClose()) {
     window.pollEvent();
+    currentFrame = static_cast<float>(glfwGetTime());
+    deltaTime    = currentFrame - lastFrame;
+    lastFrame    = currentFrame;
 
+    processInput(windowHandle, deltaTime);
+
+    {
+      globalCamera.buildRenderCamera(cam_data);
+      // Timer timer("sphere render");
+      render_frame(cusurf, width, height, cam_data);
+    }
     glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
@@ -120,6 +218,7 @@ int main(int argc, char **argv) {
     gui.window("frame", [&]() {
       auto ext = frame.getSize();
       gui.text("frame size: %dx%d", ext.x, ext.y);
+      gui.button("visualize", visualize);
       gui.button("render", render);
       gui.button("clear", clear);
       gui.button("save", save);
@@ -128,9 +227,6 @@ int main(int argc, char **argv) {
     gui.end();
 
     window.swapBuffers();
-
-    // render_frame(cusurf, width, height);
-    // render_frame(cusurf, width, height, ctree);
   }
 
   return 0;

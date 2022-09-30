@@ -1,0 +1,6 @@
+build
+*.obj
+*.dot
+*.ncu-rep
+*.ini
+.vscode
